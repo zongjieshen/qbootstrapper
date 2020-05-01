@@ -11,6 +11,6 @@ setup(
         install_requires=[
             'scipy',
             'numpy',
-            'python-dateutil',
+            'blas',
             ],
      )
