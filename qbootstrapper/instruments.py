@@ -13,6 +13,7 @@ discount factors for swaps are calculated using a root-finding algorithm.
 from __future__ import division
 import dateutil.relativedelta
 import datetime
+import calendar
 import numpy as np
 import scipy.interpolate
 import scipy.optimize
@@ -58,11 +59,6 @@ class Instrument(object):
                 return date
             else:
                 return date - self._timedelta(max(0, date.weekday() - 5), 'days')
-        elif adjustment == 'modified following':
-            if date.month == self._date_adjust(date, 'following').month:
-                return self._date_adjust(date, 'following')
-            else:
-                return date - self._timedelta(7 - date.weekday(), 'days')
         else:
             raise Exception('Adjustment period "{adjustment}" '
                             'not recognized'.format(**locals()))
@@ -342,28 +338,12 @@ class SwapInstrument(Instrument):
     def _set_schedules(self):
         '''Sets the fixed and floating schedules of the swap.
         '''
-        if hasattr(self, 'second'):
-            self.fixed_schedule = Schedule(self.effective, self.maturity,
-                                           self.fixed_length,
-                                           period_length=self.fixed_period_length,
-                                           second=self.second,
-                                           penultimate=self.penultimate,
-                                           period_adjustment=self.fixed_period_adjustment,
-                                           payment_adjustment=self.fixed_payment_adjustment)
-            self.float_schedule = Schedule(self.effective, self.maturity,
-                                           self.float_length,
-                                           period_length=self.float_period_length,
-                                           second=self.second,
-                                           penultimate=self.penultimate,
-                                           period_adjustment=self.float_period_adjustment,
-                                           payment_adjustment=self.float_payment_adjustment)
-        else:
-            self.fixed_schedule = Schedule(self.effective, self.maturity,
+        self.fixed_schedule = Schedule(self.effective, self.maturity,
                                            self.fixed_length,
                                            period_length=self.fixed_period_length,
                                            period_adjustment=self.fixed_period_adjustment,
                                            payment_adjustment=self.fixed_payment_adjustment)
-            self.float_schedule = Schedule(self.effective, self.maturity,
+        self.float_schedule = Schedule(self.effective, self.maturity,
                                            self.float_length,
                                            period_length=self.float_period_length,
                                            period_adjustment=self.float_period_adjustment,
@@ -376,108 +356,6 @@ class OISSwapInstrument(SwapInstrument):
     This class can be utilized to hold the market data and conventions
     for a single swap, which is later utilized in when the .build()
     method is called on the curve where this instrument has been added.
-
-    Arguments:
-        effective (datetime)                : First accrual start date of
-                                              the swap
-        maturity (datetime)                 : Last accrual end date of
-                                              the swap
-        rate (float)                        : Fixed rate
-        curve (Curve object)                : Associated curve object.
-                                              There are callbacks to the
-                                              curve for prior discount
-                                              factors, so it must be
-                                              assigned
-
-        kwargs (optional)
-        -----------------
-        fixed_basis (string)                : Accrual basis of the fixed
-                                              leg. See daycount method of
-                                              base Instrument class for
-                                              implemented conventions
-                                              [default: '30360']
-        float_basis (string)                : Accrual basis of the floating
-                                              leg. See daycount method of
-                                              base Instrument class for
-                                              implemented conventions
-                                              [default: 'Act360']
-        fixed_length (int)                  : Length of the fixed accrual
-                                              period, must be combined with the
-                                              'fixed_period_length' argument
-                                              [default: 6]
-        float_length (int)                  : Length of the floating accrual
-                                              period, must be combined with
-                                              the 'float_period_length'
-                                              argument. Should usually match the
-                                              rate_period argument
-                                              [default: 6]
-        fixed_period_length (string)        : Length of the fixed accrual
-                                              period timescale. See the
-                                              _timedelta method of the base
-                                              Instrument class for implemented
-                                              conventions
-                                              [default: 'months']
-        float_period_length (string)        : Length of the floating accrual
-                                              period timescale. See the
-                                              _timedelta method of the base
-                                              Instrument class for implemented
-                                              conventions
-                                              [default: 'months']
-        fixed_period_adjustment (string)    : Adjustment type for fixed
-                                              accrual periods. See the
-                                              _date_adjust method of the base
-                                              Instrument class for implemented
-                                              conventions
-                                              [default: 'unadjusted']
-        float_period_adjustment (string)    : Adjustment type for floating
-                                              accrual periods. See the
-                                              _date_adjust method for the base
-                                              Instrument class for implemented
-                                              conventions
-                                              [default: 'unadjusted']
-        fixed_payment_adjustment (string)   : Adjustment type for fixed
-                                              payment periods. See the
-                                              _date_adjust method for the base
-                                              Instrument class for implemented
-                                              conventions
-                                              [default: 'unadjusted']
-        float_payment_adjustment (string)   : Adjustment type for floating
-                                              payment periods. See the
-                                              _date_adjust method for the base
-                                              Instrument class for implemented
-                                              conventions
-                                              [default: 'unadjusted']
-        second (datetime)                   : Specify the first regular roll
-                                              date for the accrual periods
-                                              [default: False]
-        penultimate (datetime)              : Specify the last regular roll
-                                              date for the accrual periods
-                                              [default: False]
-        fixing_lag (int)                    : Days prior to the first accrual
-                                              period that the floating rate
-                                              is fixed
-                                              [default: 0]
-        notional (int)                      : Notional amount for use with
-                                              calculating swap the swap value.
-                                              Larger numbers will be slower,
-                                              but more exact.
-                                              [default: 100]
-        rate_period (int)                   : Length of the floating rate
-                                              accrual period, must be combined
-                                              with the 'rate_period_length'
-                                              argument. Should usually match
-                                              the float_length argument.
-                                              [default: 1]
-        rate_period_length (string)         : Length of the rate accrual period
-                                              timescale. See the _timedelta
-                                              method of the base Instrument
-                                              class for implemented convetions
-                                              [default: 'days']
-        rate_basis (string)                 : Accrual basis of the LIBOR rate.
-                                              See the daycount method of the
-                                              base Instrument class for
-                                              implemented conventions.
-                                              [default: 'Act360']
     '''
     def __init__(self, *args, **kwargs):
         super(OISSwapInstrument, self).__init__(*args, **kwargs)
@@ -487,7 +365,7 @@ class OISSwapInstrument(SwapInstrument):
         '''Returns the discount factor for the swap using Newton's method
         root finder.
         '''
-        return scipy.optimize.newton(self._swap_value, 0)
+        return scipy.optimize.newton(self._swap_value, -1.51568E-03)
 
     def _swap_value(self, guess, args=()):
         '''Private method used for root finding discount factor
@@ -510,18 +388,19 @@ class OISSwapInstrument(SwapInstrument):
         temp_curve = self.curve.curve
         temp_curve = np.append(self.curve.curve,
                                np.array([(np.datetime64(self.maturity.strftime('%Y-%m-%d')),
-                                          time.mktime(self.maturity.timetuple()),
+                                          ((np.datetime64(self.maturity) - self.curve.curve['maturity'][0])/np.timedelta64(1, 'D')).astype(np.int32),        #time.mktime(self.maturity.timetuple())     
                                           guess)],
                                         dtype=self.curve.curve.dtype))
-        interpolator = scipy.interpolate.PchipInterpolator(temp_curve['timestamp'],
-                                                           temp_curve['discount_factor'])
+        interpolator = scipy.interpolate.interp1d(temp_curve['timestamp'],
+                                                  temp_curve['discount_factor'],kind='linear',fill_value='extrapolate')
 
         for period in self.float_schedule.periods:
             forward_rate = self.__forward_rate(interpolator, period)
             period['cashflow'] = forward_rate * self.notional
 
         payment_dates = self.float_schedule.periods['payment_date'].astype('<M8[s]')
-        discount_factors = np.exp(interpolator(payment_dates.astype(np.uint64)))
+        payment_offset = ((payment_dates[-1]- np.datetime64(self.curve.effective_date))/np.timedelta64(1, 'D')).astype(np.int32)
+        discount_factors = np.exp(interpolator(payment_offset))
         self.float_schedule.periods['PV'] = self.float_schedule.periods['cashflow'] * discount_factors
 
         float_leg = self.float_schedule.periods['PV'].sum()
@@ -535,7 +414,8 @@ class OISSwapInstrument(SwapInstrument):
             period['cashflow'] = forward_rate * accrual_period * self.notional
 
         payment_dates = self.fixed_schedule.periods['payment_date'].astype('<M8[s]')
-        discount_factors = np.exp(interpolator(payment_dates.astype(np.uint64)))
+        payment_offset = ((payment_dates[-1]- np.datetime64(self.curve.effective_date))/np.timedelta64(1, 'D')).astype(np.int32)
+        discount_factors = np.exp(interpolator(payment_offset))
         self.fixed_schedule.periods['PV'] = self.fixed_schedule.periods['cashflow'] * discount_factors
 
         fixed_leg = self.fixed_schedule.periods['PV'].sum()
@@ -569,13 +449,15 @@ class OISSwapInstrument(SwapInstrument):
         end_date = period['accrual_end'].astype('<M8[s]')
         one_day = np.timedelta64(1, 'D')
         start_day = start_date.astype(object).weekday()
-        rate = 1
-        first_dates = np.arange(start_date, end_date, one_day)
+        rate = 1 #initialise the compound rate
+        first_dates = np.arange(start_date, end_date, one_day) #list all days
         # replace all Saturdays and Sundays with Fridays
         fridays = first_dates[4 - start_day::7]
         first_dates[5 - start_day::7] = fridays[:len(first_dates[5 - start_day::7])]
         first_dates[6 - start_day::7] = fridays[:len(first_dates[6 - start_day::7])]
+        first_dates = ((first_dates - np.datetime64(self.curve.effective_date))/np.timedelta64(1, 'D')).astype(np.int32)
         second_dates = first_dates + one_day
+        #initial_dfs = np.exp(interpolator(2))
         initial_dfs = np.exp(interpolator(first_dates))
         end_dfs = np.exp(interpolator(second_dates))
         rates = (initial_dfs / end_dfs)
@@ -590,107 +472,6 @@ class LIBORSwapInstrument(SwapInstrument):
     for a single swap, which is later utilized in when the .build()
     method is called on the curve where this instrument has been added.
 
-    Arguments:
-        effective (datetime)                : First accrual start date of
-                                              the swap
-        maturity (datetime)                 : Last accrual end date of
-                                              the swap
-        rate (float)                        : Fixed rate
-        curve (Curve object)                : Associated curve object.
-                                              There are callbacks to the
-                                              curve for prior discount
-                                              factors, so it must be
-                                              assigned
-
-        kwargs (optional)
-        -----------------
-        fixed_basis (string)                : Accrual basis of the fixed
-                                              leg. See daycount method of
-                                              base Instrument class for
-                                              implemented conventions
-                                              [default: '30360']
-        float_basis (string)                : Accrual basis of the floating
-                                              leg. See daycount method of
-                                              base Instrument class for
-                                              implemented conventions
-                                              [default: 'Act360']
-        fixed_length (int)                  : Length of the fixed accrual
-                                              period, must be combined with the
-                                              'fixed_period_length' argument
-                                              [default: 6]
-        float_length (int)                  : Length of the floating accrual
-                                              period, must be combined with
-                                              the 'float_period_length'
-                                              argument. Should usually match the
-                                              rate_period argument
-                                              [default: 6]
-        fixed_period_length (string)        : Length of the fixed accrual
-                                              period timescale. See the
-                                              _timedelta method of the base
-                                              Instrument class for implemented
-                                              conventions
-                                              [default: 'months']
-        float_period_length (string)        : Length of the floating accrual
-                                              period timescale. See the
-                                              _timedelta method of the base
-                                              Instrument class for implemented
-                                              conventions
-                                              [default: 'months']
-        fixed_period_adjustment (string)    : Adjustment type for fixed
-                                              accrual periods. See the
-                                              _date_adjust method of the base
-                                              Instrument class for implemented
-                                              conventions
-                                              [default: 'unadjusted']
-        float_period_adjustment (string)    : Adjustment type for floating
-                                              accrual periods. See the
-                                              _date_adjust method for the base
-                                              Instrument class for implemented
-                                              conventions
-                                              [default: 'unadjusted']
-        fixed_payment_adjustment (string)   : Adjustment type for fixed
-                                              payment periods. See the
-                                              _date_adjust method for the base
-                                              Instrument class for implemented
-                                              conventions
-                                              [default: 'unadjusted']
-        float_payment_adjustment (string)   : Adjustment type for floating
-                                              payment periods. See the
-                                              _date_adjust method for the base
-                                              Instrument class for implemented
-                                              conventions
-                                              [default: 'unadjusted']
-        second (datetime)                   : Specify the first regular roll
-                                              date for the accrual periods
-                                              [default: False]
-        penultimate (datetime)              : Specify the last regular roll
-                                              date for the accrual periods
-                                              [default: False]
-        fixing_lag (int)                    : Days prior to the first accrual
-                                              period that the floating rate
-                                              is fixed
-                                              [default: 0]
-        notional (int)                      : Notional amount for use with
-                                              calculating swap the swap value.
-                                              Larger numbers will be slower,
-                                              but more exact.
-                                              [default: 100]
-        rate_period (int)                   : Length of the floating rate
-                                              accrual period, must be combined
-                                              with the 'rate_period_length'
-                                              argument. Should usually match
-                                              the float_length argument.
-                                              [default: 1]
-        rate_period_length (string)         : Length of the rate accrual period
-                                              timescale. See the _timedelta
-                                              method of the base Instrument
-                                              class for implemented convetions
-                                              [default: 'days']
-        rate_basis (string)                 : Accrual basis of the LIBOR rate.
-                                              See the daycount method of the
-                                              base Instrument class for
-                                              implemented conventions.
-                                              [default: 'Act360']
     '''
     def __init__(self, *args, **kwargs):
         super(LIBORSwapInstrument, self).__init__(*args, **kwargs)
@@ -728,12 +509,12 @@ class LIBORSwapInstrument(SwapInstrument):
         temp_curve = self.curve.curve
         temp_curve = np.append(self.curve.curve,
                                np.array([(np.datetime64(self.maturity.strftime('%Y-%m-%d')),
-                                          time.mktime(self.maturity.timetuple()),
+                                          ((np.datetime64(self.maturity) - self.curve.curve['maturity'][0])/np.timedelta64(1, 'D')).astype(np.int32),
                                           guess)],
                                         dtype=self.curve.curve.dtype))
         
-        interpolator = scipy.interpolate.PchipInterpolator(temp_curve['timestamp'],
-                                                           temp_curve['discount_factor'])
+        interpolator = scipy.interpolate.interp1d(temp_curve['timestamp'],
+                                                  temp_curve['discount_factor'],kind='linear',fill_value='extrapolate')
 
         if self.curve.discount_curve is not False:
             discount_curve = self.curve.discount_curve.log_discount_factor
@@ -744,17 +525,19 @@ class LIBORSwapInstrument(SwapInstrument):
         # Note that this way minimizes the number of loops
         # and calls to the interpolator objects
         fixing_dates = self.float_schedule.periods['fixing_date'].astype('<M8[s]')
-
+        
         rate_length = self._timedelta(self.rate_period, self.rate_period_length)
 
         end_dates = np.empty_like(fixing_dates, dtype=np.uint64)
+        
         accrual_periods = np.empty_like(fixing_dates, dtype=np.float64)
         rate_accrual_periods = np.empty_like(fixing_dates, dtype=np.float64)
 
         for idx, date in enumerate(self.float_schedule.periods['fixing_date']):
             end_date = date.astype(object) + rate_length
             end_date = np.datetime64(end_date.isoformat())
-            end_dates[idx] = end_date.astype('<M8[s]').astype(np.uint64)
+            end_date_day = ((np.datetime64(end_date) - np.datetime64(self.curve.effective_date))/np.timedelta64(1, 'D')).astype(np.int32) 
+            end_dates[idx] = end_date_day
             rate_accrual_periods[idx] = super(LIBORSwapInstrument,
                                               self).daycount(date,
                                                              end_date,
@@ -766,7 +549,8 @@ class LIBORSwapInstrument(SwapInstrument):
                                                   accrual_end,
                                                   self.float_basis)
             accrual_periods[idx] = accrual_period
-
+        fixing_dates = ((fixing_dates - np.datetime64(self.curve.effective_date))/np.timedelta64(1, 'D')).astype(np.int32)
+        #end_dates = ((end_date - np.datetime64(self.curve.effective_date))/np.timedelta64(1, 'D')).astype(np.int32) 
         initial_dfs = np.exp(interpolator(fixing_dates))
         end_dfs = np.exp(interpolator(end_dates))
         rate = (initial_dfs / end_dfs - 1) / rate_accrual_periods
@@ -774,7 +558,8 @@ class LIBORSwapInstrument(SwapInstrument):
         self.float_schedule.periods['cashflow'] = cashflows
 
         payment_dates = self.float_schedule.periods['payment_date'].astype('<M8[s]')
-        self.float_schedule.periods['PV'] = cashflows * np.exp(discount_curve(payment_dates))
+        payment_offset = ((payment_dates- np.datetime64(self.curve.effective_date))/np.timedelta64(1, 'D')).astype(np.int32)
+        self.float_schedule.periods['PV'] = cashflows * np.exp(discount_curve(payment_offset))
 
         floating_leg = self.float_schedule.periods['PV'].sum()
 
@@ -794,7 +579,8 @@ class LIBORSwapInstrument(SwapInstrument):
         self.fixed_schedule.periods['cashflow'] = cashflows
 
         payment_dates = self.fixed_schedule.periods['payment_date'].astype('<M8[s]')
-        self.fixed_schedule.periods['PV'] = cashflows * np.exp(discount_curve(payment_dates))
+        payment_offset = ((payment_dates- np.datetime64(self.curve.effective_date))/np.timedelta64(1, 'D')).astype(np.int32)
+        self.fixed_schedule.periods['PV'] = cashflows * np.exp(discount_curve(payment_offset))
 
         fixed_leg = self.fixed_schedule.periods['PV'].sum()
 
@@ -815,7 +601,7 @@ class BasisSwapInstrument(SwapInstrument):
                  leg_two_period_adjustment='unadjusted',
                  leg_one_payment_adjustment='unadjusted',
                  leg_two_payment_adjustment='unadjusted',
-                 second=False, penultimate=False, notional=100,
+                 notional=100,
                  leg_one_fixing_lag=0, leg_two_fixing_lag=0,
                  leg_one_rate_period=1, leg_one_rate_period_length='days',
                  leg_one_rate_basis='Act360',
@@ -826,12 +612,7 @@ class BasisSwapInstrument(SwapInstrument):
         self.instrument_type = 'Basis_swap'
         self.effective = effective
         self.maturity = maturity
-        if bool(second):
-            self.second = second
-        if bool(penultimate):
-            self.penultimate = penultimate
         self.notional = notional
-
         self.leg_one_spread = leg_one_spread
         self.leg_two_spread = leg_two_spread
         self.curve = curve
@@ -863,28 +644,12 @@ class BasisSwapInstrument(SwapInstrument):
     def _set_schedules(self):
         '''Sets the schedules of the swap.
         '''
-        if hasattr(self, 'second'):
-            self.leg_one_schedule = Schedule(self.effective, self.maturity,
-                                             self.leg_one_length,
-                                             period_length=self.leg_one_period_length,
-                                             second=self.second,
-                                             penultimate=self.penultimate,
-                                             period_adjustment=self.leg_one_period_adjustment,
-                                             payment_adjustment=self.leg_one_payment_adjustment)
-            self.leg_two_shcedule = Schedule(self.effective, self.maturity,
-                                             self.leg_two_length,
-                                             period_length=self.leg_two_period_length,
-                                             second=self.second,
-                                             penultimate=self.penultimate,
-                                             period_adjustment=self.leg_two_period_adjustment,
-                                             payment_adjustment=self.leg_two_payment_adjustment)
-        else:
-            self.leg_one_schedule = Schedule(self.effective, self.maturity,
+        self.leg_one_schedule = Schedule(self.effective, self.maturity,
                                              self.leg_one_length,
                                              period_length=self.leg_one_period_length,
                                              period_adjustment=self.leg_one_period_adjustment,
                                              payment_adjustment=self.leg_one_payment_adjustment)
-            self.leg_two_schedule = Schedule(self.effective, self.maturity,
+        self.leg_two_schedule = Schedule(self.effective, self.maturity,
                                              self.leg_two_length,
                                              period_length=self.leg_two_period_length,
                                              period_adjustment=self.leg_two_period_adjustment,
@@ -922,20 +687,20 @@ class AverageIndexBasisSwapInstrument(BasisSwapInstrument):
 
         discount_curve = np.append(self.curve.discount_curve.curve,
                                   np.array([(np.datetime64(self.maturity.strftime('%Y-%m-%d')),
-                                             time.mktime(self.maturity.timetuple()),
+                                             ((np.datetime64(self.maturity) - np.datetime64(self.curve.effective_date))/np.timedelta64(1, 'D')).astype(np.int32),
                                              ois_guess)],
                                            dtype=self.curve.discount_curve.curve.dtype))
 
-        leg_one_interpolator = scipy.interpolate.PchipInterpolator(discount_curve['timestamp'],
-                                                                   discount_curve['discount_factor'])
+        leg_one_interpolator = scipy.interpolate.interp1d(discount_curve['timestamp'],
+                                                  discount_curve['discount_factor'],kind='linear',fill_value='extrapolate')
 
         projection_curve = np.append(self.curve.projection_curve.curve,
                                   np.array([(np.datetime64(self.maturity.strftime('%Y-%m-%d')),
-                                             time.mktime(self.maturity.timetuple()),
+                                             ((np.datetime64(self.maturity) - np.datetime64(self.curve.effective_date))/np.timedelta64(1, 'D')).astype(np.int32),
                                              libor_guess)],
                                            dtype=self.curve.projection_curve.curve.dtype))
-        leg_two_interpolator = scipy.interpolate.PchipInterpolator(projection_curve['timestamp'],
-                                                                   projection_curve['discount_factor'])
+        leg_two_interpolator = scipy.interpolate.interp1d(projection_curve['timestamp'],
+                                                  projection_curve['discount_factor'],kind='linear',fill_value='extrapolate')
 
         discount_interpolator = leg_one_interpolator
 
@@ -948,7 +713,8 @@ class AverageIndexBasisSwapInstrument(BasisSwapInstrument):
             period['cashflow'] = (forward_rate + self.leg_one_spread) * self.notional * accrual_period
 
         payment_dates = self.leg_one_schedule.periods['payment_date'].astype('<M8[s]')
-        discount_factors = np.exp(discount_interpolator(payment_dates.astype(np.uint64)))
+        payment_offset = ((payment_dates- np.datetime64(self.curve.effective_date))/np.timedelta64(1, 'D')).astype(np.int32)
+        discount_factors = np.exp(discount_interpolator(payment_offset))
         self.leg_one_schedule.periods['PV'] = self.leg_one_schedule.periods['cashflow'] * discount_factors
 
         ois_leg = self.leg_one_schedule.periods['PV'].sum()
@@ -967,7 +733,9 @@ class AverageIndexBasisSwapInstrument(BasisSwapInstrument):
         for idx, date in enumerate(self.leg_two_schedule.periods['fixing_date']):
             end_date = date.astype(object) + rate_length
             end_date = np.datetime64(end_date.isoformat())
-            end_dates[idx] = end_date.astype('<M8[s]').astype(np.uint64)
+            end_date_day = ((np.datetime64(end_date) - np.datetime64(self.curve.effective_date))/np.timedelta64(1, 'D')).astype(np.int32) 
+            end_dates[idx] = end_date_day
+
             rate_accrual_periods[idx] = super(AverageIndexBasisSwapInstrument,
                                               self).daycount(date,
                                                              end_date,
@@ -979,6 +747,7 @@ class AverageIndexBasisSwapInstrument(BasisSwapInstrument):
                                                         accrual_end,
                                                         self.leg_two_basis)
 
+        fixing_dates = ((fixing_dates - np.datetime64(self.curve.effective_date))/np.timedelta64(1, 'D')).astype(np.int32)
         initial_dfs = np.exp(leg_two_interpolator(fixing_dates))
         end_dfs = np.exp(leg_two_interpolator(end_dates))
         rate = (initial_dfs / end_dfs - 1) / rate_accrual_periods
@@ -986,7 +755,8 @@ class AverageIndexBasisSwapInstrument(BasisSwapInstrument):
         self.leg_two_schedule.periods['cashflow'] = cashflows
 
         payment_dates = self.leg_two_schedule.periods['payment_date'].astype('<M8[s]')
-        self.leg_two_schedule.periods['PV'] = cashflows * np.exp(discount_interpolator(payment_dates.astype(np.uint64)))
+        payment_offset = ((payment_dates- np.datetime64(self.curve.effective_date))/np.timedelta64(1, 'D')).astype(np.int32)
+        self.leg_two_schedule.periods['PV'] = cashflows * np.exp(discount_interpolator(payment_offset))
 
         libor_leg = self.leg_two_schedule.periods['PV'].sum()
 
@@ -1004,11 +774,12 @@ class AverageIndexBasisSwapInstrument(BasisSwapInstrument):
         fridays = first_dates[4 - start_day::7]
         first_dates[5 - start_day::7] = fridays[:len(first_dates[5 - start_day::7])]
         first_dates[6 - start_day::7] = fridays[:len(first_dates[6 - start_day::7])]
+        first_dates = ((first_dates - np.datetime64(self.curve.effective_date))/np.timedelta64(1, 'D')).astype(np.int32)
         second_dates = first_dates + one_day
         initial_dfs = np.exp(interpolator(first_dates))
         end_dfs = np.exp(interpolator(second_dates))
-        rates = ((initial_dfs / end_dfs) - 1) * 360
-        rate = rates.mean()
+        rates = (initial_dfs / end_dfs)
+        rate = rates.prod() - 1
         return rate
 
 
@@ -1042,3 +813,209 @@ class SimultaneousInstrument(Instrument):
         discount_value = self.discount_instrument._swap_value(guesses)
         projection_value = self.projection_instrument._swap_value(guesses)
         return max(abs(discount_value), abs(projection_value))
+
+class BondInstrument(Instrument):
+    '''Base class for bond instruments. See OISSwapInstrument and
+    LIBORSwapInstrument for more detailed specs.
+    '''
+    def __init__(self, effective,settle_date, issuedate, maturity, rate, realyield, curve,
+                 basis='Act360',length=6,
+                 period_length='months', 
+                 period_adjustment='unadjusted',
+                 payment_adjustment='unadjusted',ex_div_date = 7,
+                 fixing_lag=6, notional=100,
+                 rate_period=1, rate_period_length='days', rate_basis='Act360', cpi_hist = {}):
+
+        # assignments
+        self.effective = effective
+        self.settle_date = settle_date
+        self.issuedate = issuedate
+        self.maturity = maturity
+        self.rate = rate
+        self.realyield = realyield
+        self.curve = curve
+        self.fixing_lag = fixing_lag
+        self.notional = notional
+
+        self.basis = basis
+        self.length = length
+        self.period_length = period_length
+        self.period_adjustment = period_adjustment
+        self.payment_adjustment = payment_adjustment
+        self.ex_div_date = ex_div_date
+
+        self.rate_period = rate_period
+        self.rate_period_length = rate_period_length
+        self.rate_basis = rate_basis
+        self.cpi_hist = cpi_hist
+        self.coupon_freq = 12/rate_period
+
+        self._set_schedules()
+
+    def _set_schedules(self):
+        '''Sets the fixed and floating schedules of the swap.
+        '''
+        self.schedule = Schedule(self.effective, self.maturity,
+                                           self.length,
+                                           period_length=self.period_length,
+                                           period_adjustment=self.period_adjustment,
+                                           payment_adjustment=self.payment_adjustment,
+                                           instrument_type = 'InflationAUDBond',
+                                           issuedate = self.issuedate)
+
+class InflationAUDBond(BondInstrument):
+    
+    def __init__(self, *args, **kwargs):
+        super(InflationAUDBond, self).__init__(*args, **kwargs)
+        self.instrument_type = 'InflationAUDBond'
+
+    def calibr_inflation_rate(self):
+        '''Returns the discount factor for the swap using Newton's method
+        root finder.
+        '''
+        inflation_rate = scipy.optimize.minimize(self._bond_value,0.01803512,method = 'Nelder-Mead').get('x')[0]
+        return inflation_rate
+
+    def _bond_value(self, guess, args=()):
+        '''Private method used for root finding discount factor
+
+        The main function for use with the root-finder. This function returns
+        the value of a swap given a discount factor. It appends the discount
+        factor to the existent array with the date of the instrument, calculates
+        each cashflow and PV for each leg, and returns the net value of the pay
+        fixed swap.
+
+        Arguments:
+            guess (float)   :   guess to be appended to a copy of the attached
+                                curve.
+
+        '''
+        if not isinstance(guess, (int, float, long, complex)):
+            # simultaneous bootstrapping sets the guess[0] as the ois guess
+            guess = guess[0]
+        maturity_EOQ = datetime.date(self.maturity.year, int((self.maturity.month-1)/3+1)*3, 1)
+        temp_maturity = (maturity_EOQ - dateutil.relativedelta.relativedelta(months=self.fixing_lag))
+        temp_curve = self.curve.curve
+        temp_cpi_hist = self.cpi_hist.copy()
+        temp_curve = np.append(self.curve.curve,
+                               np.array([(np.datetime64(temp_maturity.strftime('%Y-%m-%d')),
+                                          ((np.datetime64(temp_maturity) - np.datetime64(self.effective))/np.timedelta64(1, 'D')).astype(np.int32),      
+                                          guess)],
+                                        dtype=self.curve.curve.dtype))
+        interpolator = scipy.interpolate.interp1d(temp_curve['timestamp'],
+                                                  temp_curve['discount_factor'],kind='linear',fill_value='extrapolate')
+
+        discount_curve_interpolator = scipy.interpolate.interp1d(self.curve.discount_curve['timestamp'],
+                                                  self.curve.discount_curve['discount_factor'],kind='linear',fill_value='extrapolate')
+
+        
+        temp_cpi_hist = self.update_cpi_dict(guess, temp_maturity,temp_curve,interpolator,temp_cpi_hist)
+
+
+
+        #Generate kt number from issue_date to maturity
+        kt_periods = self._gen_kt_periods(self.issuedate,self.maturity,self.fixing_lag,self.rate_period,temp_cpi_hist)
+        fixing_kt = np.asarray([kt_periods[x] for x in self.schedule._fixing_dates])
+        #Inflated coupon cashflow
+        self.schedule.periods['cashflow'] = fixing_kt * (self.rate/self.coupon_freq)
+        self.schedule.periods['cashflow'][-1] = self.schedule.periods['cashflow'][-1] + fixing_kt[-1] #Principal cashflow
+
+        payment_dates = self.schedule.periods['payment_date'].astype('<M8[s]')
+        payment_offset = ((payment_dates- np.datetime64(self.curve.effective_date))/np.timedelta64(1, 'D')).astype(np.int32)
+        self.schedule.periods['PV'] = self.schedule.periods['cashflow'] * discount_curve_interpolator(payment_offset)
+        PV = self.schedule.periods['PV'].sum()
+
+
+        #APRA Bond valuation
+        apra_kt = fixing_kt[0]
+        apra_p = temp_cpi_hist[self.schedule._fixing_dates[0]]['p']
+        apra_value = self._apra_bond_cpi(apra_kt,apra_p)
+
+
+        return (abs(PV - apra_value))
+
+    def update_cpi_dict(self,guess, maturity, curve, interpolator, temp_cpi_hist):
+        test_rate = []
+        temp_maturity = maturity
+        temp_curve = curve
+        while temp_maturity > next(reversed(temp_cpi_hist)):
+
+                #Fill up the Index Date Column
+           last_quarter = next(reversed(temp_cpi_hist))
+           new_quarter = last_quarter + dateutil.relativedelta.relativedelta(months=3)
+            
+           EOQ_last_quarter = np.datetime64(datetime.datetime(last_quarter.year, last_quarter.month, calendar.monthrange(last_quarter.year,last_quarter.month)[-1]))
+           EOQ_new_quarter = np.datetime64(datetime.datetime(new_quarter.year, new_quarter.month, calendar.monthrange(new_quarter.year,new_quarter.month)[-1]))
+                #Compute new CPI
+           tenor = (EOQ_new_quarter-EOQ_last_quarter)/np.timedelta64(1, 'D')
+           offset = (np.datetime64(new_quarter) - np.datetime64(self.effective))/np.timedelta64(1, 'D')
+           if temp_curve[1]['timestamp'] >= offset: #before first tenor point --> no interpolation
+                rate = guess
+           else:
+                rate = interpolator(offset)
+           test_rate.append(rate)
+           new_CPI = temp_cpi_hist[last_quarter]['CPI'] * (1+rate) ** (tenor/365)
+           new_CPI2012 = temp_cpi_hist[last_quarter]['CPI2012'] * (1+rate) ** (tenor/365)
+           lag_quarter = new_quarter - dateutil.relativedelta.relativedelta(months=3*2)
+           if new_quarter > datetime.date(2012, 9, 1):
+                p = round(50 * (new_CPI2012/temp_cpi_hist[lag_quarter]['CPI2012'] - 1),2)
+           else:
+                p = round(50 * (new_CPI/temp_cpi_hist[lag_quarter]['CPI'] - 1),2)
+           temp_cpi_hist[new_quarter] = {'CPI': new_CPI,'CPI2012': new_CPI2012, 'p': p}
+        
+        return temp_cpi_hist
+
+    def _apra_bond_cpi(self,kt,p):
+        #This formula is to replicate the bond formula provided by APRA
+        coupon_freq = 12 / self.rate_period
+        i = self.realyield / coupon_freq
+        v = 1/(1+i)
+        #Get NextCpnDate
+        temp_cpn = self.issuedate
+        while self.effective > temp_cpn:
+            temp_cpn = temp_cpn + dateutil.relativedelta.relativedelta(months=self.rate_period)
+        nextCouponDate = temp_cpn
+        prevCouponDate = temp_cpn - dateutil.relativedelta.relativedelta(months=self.rate_period)
+
+        f = (nextCouponDate - self.settle_date).days
+        d = (nextCouponDate - prevCouponDate).days 
+
+        fd = f/d
+
+        g = self.rate/coupon_freq * 100
+
+        n = 0
+        temp_cpn = nextCouponDate
+        while self.maturity > temp_cpn:
+            temp_cpn = temp_cpn + dateutil.relativedelta.relativedelta(months=self.rate_period)
+            n = n + 1
+        if n == 0:
+            an = 0
+        else:
+            an = (1 - v ** n) / i
+        test = nextCouponDate - datetime.timedelta(days=self.ex_div_date)
+        if (self.settle_date - (nextCouponDate - datetime.timedelta(days=self.ex_div_date))).days > 0: 
+            isEx = 0
+        else:
+            isEx = 1
+
+        price = (v ** fd) * (g * (isEx + an) + 100 * v ** n) * (kt / 100) * (1 + p / 100) ** -fd
+
+        return price
+
+    def _gen_kt_periods(self,issuedate,maturity,delta,rate_period,cpi_hist):
+        kt_period = {}
+        current = issuedate
+
+        counter = 0
+        while maturity >=  current:
+            lag_fixing_date = datetime.date(current.year, int((current.month-1)/3+1)*3, 1) - dateutil.relativedelta.relativedelta(months=delta)
+            if counter == 0:
+                kt = 100
+            else:
+                kt = round(kt_period[lag_fixing_date - dateutil.relativedelta.relativedelta(months=rate_period)] * (1 + cpi_hist[lag_fixing_date]['p']/100),2)
+            kt_period[lag_fixing_date] = kt
+            counter += 1 
+            current = current + dateutil.relativedelta.relativedelta(months=rate_period)
+
+        return kt_period

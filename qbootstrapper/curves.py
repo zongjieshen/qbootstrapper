@@ -13,11 +13,13 @@ build and the curve will fail.
 # python libraries
 import copy
 import datetime
+import pandas as pd
+import dateutil.relativedelta
 import numpy as np
 import operator
 import scipy.interpolate
 import time
-
+import matplotlib.pyplot as plt 
 # qlib libraries
 import qbootstrapper.instruments as instruments
 
@@ -50,7 +52,7 @@ class Curve(object):
                                       interpolant can extrapolate
     '''
     def __init__(self, effective_date, discount_curve=False,
-                 allow_extrapolation=True):
+                 allow_extrapolation=True, loadB = False):
         if type(effective_date) is not datetime.datetime:
             raise TypeError('Effective date must be of type datetime.datetime')
 
@@ -61,17 +63,19 @@ class Curve(object):
             raise TypeError('Allow_extrapolation must be of type \'bool\'')
 
         self.curve = np.array([(np.datetime64(effective_date.strftime('%Y-%m-%d')),
-                                time.mktime(effective_date.timetuple()),
+                                     0,                               #time.mktime(effective_date.timetuple()),
                                 np.log(1))],
                               dtype=[('maturity', 'datetime64[D]'),
-                                     ('timestamp', np.float64),
+                                     ('timestamp', np.int),
                                      ('discount_factor', np.float64)])
 
         self.curve_type = 'IR_curve'
         self.discount_curve = discount_curve
         self.instruments = []
+        self.effective_date = effective_date
         self._built = False
         self.allow_extrapolation = allow_extrapolation
+        self.loadB = loadB
 
     def add_instrument(self, instrument):
         '''Add an instrument to the curve
@@ -89,9 +93,10 @@ class Curve(object):
         self.instruments.sort(key=operator.attrgetter('maturity'))
         for instrument in self.instruments:
             discount_factor = instrument.discount_factor()
-
+            temp=self.curve[0]
+            offset = ((np.datetime64(instrument.maturity) - np.datetime64(self.effective_date))/np.timedelta64(1, 'D')).astype(np.int32)
             array = np.array([(np.datetime64(instrument.maturity.strftime('%Y-%m-%d')),
-                              time.mktime(instrument.maturity.timetuple()),
+                              offset,
                               discount_factor)], dtype=self.curve.dtype)
             self.curve = np.append(self.curve, array)
 
@@ -103,20 +108,16 @@ class Curve(object):
         if type(date) is not datetime.datetime and type(date) is not np.datetime64:
             raise TypeError('Date must be a datetime.datetime or np.datetime64')
         if type(date) == datetime.datetime:
-            date = time.mktime(date.timetuple())
+            offset = (date - self.effective_date).days
 
-        return np.exp(self.log_discount_factor(date))
+        return np.exp(self.log_discount_factor(offset))
 
-    def log_discount_factor(self, date):
+    def log_discount_factor(self, offset):
         '''Returns the natural log of the discount factor for an arbitrary date
         '''
-        if type(date) == datetime.datetime:
-            date = time.mktime(date.timetuple())
-
-        interpolator = scipy.interpolate.PchipInterpolator(self.curve['timestamp'],
-                                                           self.curve['discount_factor'],
-                                                           extrapolate=self.allow_extrapolation)
-        return interpolator(date)
+        interpolator = scipy.interpolate.interp1d(self.curve['timestamp'],
+                                                  self.curve['discount_factor'],kind='linear',fill_value='extrapolate')
+        return interpolator(offset)
 
     def view(self, ret=False):
         '''Prints the discount factor curve
@@ -145,8 +146,9 @@ class Curve(object):
         zero_rates = np.zeros(len(maturities))
         for i in range(1, len(self.curve)):
             days = ((self.curve[i]['maturity'] - self.curve[0]['maturity']) /
-                    np.timedelta64(1, 'D')) / 365
-            zero_rates[i] = -self.curve[i]['discount_factor'] / days
+                    np.timedelta64(1, 'D')) / 360
+            temp=1/np.exp(self.curve[i]['discount_factor'])
+            zero_rates[i] = (1/np.exp(self.curve[i]['discount_factor'])) ** (1/days)-1
 
         for i in range(len(self.curve)):
             print('{0} {1:.4f}%'.format(maturities[i], zero_rates[i] * 100))
@@ -212,6 +214,7 @@ class SimultaneousStrippedCurve(Curve):
         self.projection_discount_curve = copy.deepcopy(projection_discount_curve)
         self.instruments = []
         self._built = False
+        self.effective_date = effective_date
         self.allow_extrapolation = allow_extrapolation
 
     def add_instrument(self, instrument):
@@ -239,14 +242,15 @@ class SimultaneousStrippedCurve(Curve):
 
             if df.success:
                 leg_one_df, leg_two_df = df.x
-
+                d_maturity = instrument.discount_instrument.maturity
+                p_maturity = instrument.projection_instrument.maturity
                 array = np.array([(np.datetime64(instrument.discount_instrument.maturity.strftime('%Y-%m-%d')),
-                                   time.mktime(instrument.discount_instrument.maturity.timetuple()),
+                                   ((np.datetime64(d_maturity) - np.datetime64(self.effective_date))/np.timedelta64(1, 'D')).astype(np.int32),
                                    leg_one_df)], dtype=self.discount_curve.curve.dtype)
                 self.discount_curve.curve = np.append(self.discount_curve.curve, array)
 
                 array = np.array([(np.datetime64(instrument.projection_instrument.maturity.strftime('%Y-%m-%d')),
-                                   time.mktime(instrument.projection_instrument.maturity.timetuple()),
+                                   ((np.datetime64(p_maturity) - np.datetime64(self.effective_date))/np.timedelta64(1, 'D')).astype(np.int32),
                                    leg_two_df)], dtype=self.projection_curve.curve.dtype)
                 self.projection_curve.curve = np.append(self.projection_curve.curve, array)
                 
@@ -265,3 +269,88 @@ class SimultaneousStrippedCurve(Curve):
         raise NotImplementedError('Please view the individual curves using the'
                                   ' self.discount_curve and'
                                   ' self.projection_curve syntax')
+
+
+class AUDInflationCurve(Curve):
+    '''Implementation of the Curve class for LIBOR curves.
+    Build method is over-written to cause the discount curve to be built
+    in the case of a dual bootstrap
+    '''
+    def __init__(self, *args, **kwargs):
+        super(AUDInflationCurve, self).__init__(*args, **kwargs)
+        self.curve_type = 'AUDInflation_curve'
+
+    def build(self):
+        '''Checks to see if the discount curve has already been built before
+        running the base class build method
+        '''
+        if self.discount_curve is False:
+            if self.loadB == True:
+                self._load_discount_curve()
+            else:
+                self.discount_curve.build()
+
+        self.curve = self.curve[0]
+        self.instruments.sort(key=operator.attrgetter('maturity'))
+        for instrument in self.instruments:
+            inflation_rate = instrument.calibr_inflation_rate()
+            EOQ_maturity = datetime.date(instrument.maturity.year, int((instrument.maturity.month-1)/3+1)*3, 1) - dateutil.relativedelta.relativedelta(months=instrument.fixing_lag)
+            offset = ((np.datetime64(EOQ_maturity) - np.datetime64(self.effective_date))/np.timedelta64(1, 'D')).astype(np.int32)
+            array = np.array([(np.datetime64(EOQ_maturity.strftime('%Y-%m-%d')),
+                              offset,
+                              inflation_rate)], dtype=self.curve.dtype)
+            self.curve = np.append(self.curve, array)
+            interpolator = scipy.interpolate.interp1d(self.curve['timestamp'],
+                                self.curve['discount_factor'],kind='linear',fill_value='extrapolate')
+            instrument.cpi_hist = instrument.update_cpi_dict(inflation_rate,EOQ_maturity,self.curve, interpolator, instrument.cpi_hist)
+
+        self._built = True
+
+    def _load_discount_curve(self):
+        df=pd.read_excel(r'C:\Users\Zongjie\Documents\GitHub Repo\qbootstrapper\qbootstrapper\discount_curve.xlsx')
+        df['Tenor'] = df['Tenor'].dt.date
+        test = df['Tenor'][0]
+        if df['Tenor'][0] == self.effective_date.date():
+            df['Offset'] = (df['Tenor'] - df['Tenor'][0]).dt.days
+        else:
+            raise Exception()
+
+        self.discount_curve = np.array([(np.datetime64(self.effective_date.strftime('%Y-%m-%d')),
+                                     0,                               
+                                     1)],
+                              dtype=[('maturity', 'datetime64[D]'),
+                                     ('timestamp', np.int),
+                                     ('discount_factor', np.float64)])
+
+        for index, row in df[1:].iterrows():
+            array = np.array([(np.datetime64(row[0].strftime('%Y-%m-%d')),
+                              row[2],
+                              row[1])], dtype=self.curve.dtype)
+            self.discount_curve = np.append(self.discount_curve, array)
+
+        self._built = True
+
+    def view(self, ret=False):
+        '''Prints the discount factor curve
+        Optionally return tuple of the maturities and discount factors
+        '''
+        if not self._built:
+            self.build()
+
+        maturities = self.curve['maturity']
+        inflation_rate = self.curve['discount_factor']
+        for i in range(len(self.curve)):
+            date = maturities[i].astype(object).strftime('%Y-%m-%d')
+            print('{0} {1:.10f}'.format(date, inflation_rate[i]))
+        
+            
+        plt.plot(maturities,inflation_rate) 
+        plt.show() 
+
+
+        if ret:
+            return maturities, inflation_rate
+
+
+
+

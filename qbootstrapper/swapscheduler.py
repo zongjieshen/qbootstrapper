@@ -6,7 +6,8 @@ Copyright (c) Kevin Keogh
 Implements the Schedule object that creates a NumPy rec.array of
 accrual, fixing, and payments dates for an interest rate swap.
 '''
-
+import calendar
+import datetime
 import dateutil.relativedelta
 import numpy as np
 
@@ -62,7 +63,9 @@ class Schedule:
                  second=False, penultimate=False,
                  period_adjustment='unadjusted',
                  payment_adjustment='unadjusted',
-                 fixing_lag=2, period_length='months'):
+                 fixing_lag=6, period_length='months',
+                 issuedate = '',
+                 instrument_type = ''):
 
         # variable assignment
         self.effective = effective
@@ -75,6 +78,8 @@ class Schedule:
         self.penultimate = penultimate
         self.fixing_lag = fixing_lag
         self.period_length = period_length
+        self.instrument_type = instrument_type
+        self.issuedate = issuedate
 
         # date generation routine
         self._gen_periods()
@@ -84,36 +89,26 @@ class Schedule:
         '''Private method to generate the date series
         '''
 
-        if bool(self.second) ^ bool(self.penultimate):
-            raise Exception('If specifying second or penultimate dates,'
-                            'must select both')
 
-        if self.second:
-            self._period_ends = self._gen_dates(self.second,
-                                                self.penultimate,
-                                                self.period_delta,
-                                                'unadjusted')
-            self._period_ends = [self.second] + self._period_ends + [self.maturity]
-            self._adjusted_period_ends = self._gen_dates(self.second,
-                                                         self.penultimate,
-                                                         self.period_delta,
-                                                         self.period_adjustment)
-            self._adjusted_period_ends = ([self.second] +
-                                          self._adjusted_period_ends +
-                                          [self.maturity])
-        else:
-            self._period_ends = self._gen_dates(self.effective,
+        self._period_ends = self._gen_dates(self.effective,
                                                 self.maturity,
                                                 self.period_delta,
                                                 'unadjusted')
-            self._adjusted_period_ends = self._gen_dates(self.effective,
-                                                         self.maturity,
-                                                         self.period_delta,
-                                                         self.period_adjustment)
+        self._adjusted_period_ends = self._gen_dates(self.effective,
+                                                     self.maturity,
+                                                     self.period_delta,
+                                                     self.period_adjustment)
         self._period_starts = [self.effective] + self._adjusted_period_ends[:-1]
-        self._fixing_dates = self._gen_date_adjustments(self._period_starts,
-                                                        -self.fixing_lag,
-                                                        adjustment='preceding')
+        if self.instrument_type == 'InflationAUDBond':
+            self._fixing_dates = self._gen_cpi_dates(self.effective, #Using end period only for AUD BEI Curve
+                                                        self.maturity,
+                                                        self.fixing_lag,
+                                                        self.period_delta)
+        else:
+            self._fixing_dates = self._gen_date_adjustments(self._adjusted_period_ends, #Using end period only for AUD BEI Curve
+                                                            -self.fixing_lag,
+                                                            self.period_adjustment,
+                                                            self.period_length)
         self._payment_dates = self._gen_date_adjustments(self._period_ends,
                                                          0,
                                                          adjustment=self.payment_adjustment)
@@ -131,12 +126,9 @@ class Schedule:
                                                 ('accrual_start', 'datetime64[D]'),
                                                 ('accrual_end', 'datetime64[D]'),
                                                 ('payment_date', 'datetime64[D]'),
-                                                ('cashflow', np.float64),
+                                                ('cashflow', np.float64), 
                                                 ('PV', np.float64)])
 
-        if bool(self.second) ^ bool(self.penultimate):
-            raise Exception('If specifying second or penultimate dates,'
-                            'must select both')
 
     def _timedelta(self, delta, period_length):
         '''Private function to convert a number and string (eg -- 3, 'months') to
@@ -165,6 +157,20 @@ class Schedule:
             dates.append(self._date_adjust(current, adjustment))
             counter += 1
             current = maturity - (delta * counter)
+        return dates[::-1]
+
+    def _gen_cpi_dates(self, effective, maturity, delta,period_length):
+        dates = []
+        current = maturity
+
+        counter = 0
+        while current > effective:
+            lag_fixing_date = datetime.date(current.year, int((current.month-1)/3+1)*3, 1) - dateutil.relativedelta.relativedelta(months=delta)
+            #lag_fixing_date = lag_fixing_date.replace(day=1)
+            dates.append(lag_fixing_date)
+            counter += 1
+            current = current - period_length
+
         return dates[::-1]
 
     def _date_adjust(self, date, adjustment):
@@ -199,16 +205,26 @@ class Schedule:
         else:
             raise Exception('Adjustment period not recognized')
 
-    def _gen_date_adjustments(self, dates, delta, adjustment='unadjusted'):
+    def _gen_date_adjustments(self, dates, delta, adjustment='unadjusted',length = 'days'):
         '''Private function to take a list of dates and adjust each for a number
         of days. It will also adjust each date for a business day adjustment if
         requested.
         '''
         adjusted_dates = []
-        for date in dates:
-            adjusted_date = date + self._timedelta(delta, 'days')
-            adjusted_date = self._date_adjust(adjusted_date, adjustment)
-            adjusted_dates.append(adjusted_date)
+
+        if length == 'months':
+            for date1 in dates:
+                last_month_of_quarter = int((date1.month-1)/3+1)*3
+                EOQ = datetime.datetime(date1.year, last_month_of_quarter, 1)
+                adjusted_date = EOQ + dateutil.relativedelta.relativedelta(months=delta)  #+ self._timedelta(delta, length)
+                adjusted_date = adjusted_date.replace(day=1) #date(adjusted_date.year, adjusted_date.month, calendar.monthrange(adjusted_date.year, adjusted_date.month)[0])
+                #adjusted_date = self._date_adjust(adjusted_date, adjustment)
+                adjusted_dates.append(adjusted_date)
+        else:
+            for date in dates:
+                adjusted_date = date + self._timedelta(delta, length)
+                adjusted_date = self._date_adjust(adjusted_date, adjustment)
+                adjusted_dates.append(adjusted_date)
         return adjusted_dates
 
     def _np_dtarrays(self, *args):

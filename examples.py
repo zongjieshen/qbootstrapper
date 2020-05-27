@@ -488,28 +488,6 @@ sonia_short_swaps = [sonia_cash, sonia_swap_onew, sonia_swap_twow,
                      sonia_swap_sixm, sonia_swap_sevenm, sonia_swap_eightm,
                      sonia_swap_ninem, sonia_swap_tenm, sonia_swap_elevenm]
 
-sonia_swap_data = [(datetime.datetime(2017, 6, 30), 0.001499),
-                   (datetime.datetime(2017, 12, 29), 0.001223),
-                   (datetime.datetime(2018, 6, 30), 0.001076),
-                   (datetime.datetime(2019, 6, 30), 0.001106),
-                   (datetime.datetime(2020, 6, 30), 0.001444),
-                   (datetime.datetime(2021, 6, 30), 0.002058),
-                   (datetime.datetime(2022, 6, 30), 0.00284),
-                   (datetime.datetime(2023, 6, 30), 0.003749),
-                   (datetime.datetime(2024, 6, 30), 0.004668),
-                   (datetime.datetime(2025, 6, 30), 0.005532),
-                   (datetime.datetime(2026, 6, 30), 0.006322),
-                   (datetime.datetime(2027, 6, 30), 0.007016),
-                   (datetime.datetime(2028, 6, 30), 0.007609),
-                   (datetime.datetime(2031, 6, 30), 0.008891),
-                   (datetime.datetime(2036, 6, 30), 0.009792),
-                   (datetime.datetime(2041, 6, 30), 0.009916),
-                   (datetime.datetime(2046, 6, 30), 0.009869),
-                   (datetime.datetime(2056, 6, 30), 0.009242),
-                   (datetime.datetime(2066, 6, 30), 0.009003)]
-
-for inst in sonia_short_swaps:
-    sonia.add_instrument(inst)
 
 for maturity, rate in sonia_swap_data:
     sonia.add_instrument(qb.OISSwapInstrument(curve_effective,
@@ -612,7 +590,7 @@ for idx, (maturity, rate) in enumerate(fedfunds_libor_swap_data):
 # fedfunds.build()
 # fedfunds.view()
 # fedfunds.zeros()
-# sonia.build()
+sonia.build()
 # sonia.view()
 # sonia.zeros()
 # euribor.build()
